@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CryptoQuant intraday dashboard — price, liquidations, funding, open interest, CVD, EMA regime, volume-at-price, volatility">
+  <meta name="description" content="CryptoQuant intraday dashboard — price, liquidations, funding, open interest, optional CoinGlass long/short, CVD, EMA regime, volume-at-price, volatility">
   <title>CryptoQuant Intraday Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -124,9 +124,11 @@
       <dl id="funding-oi-stats" class="stat-grid" aria-label="Funding rate and open interest"></dl>
       <p id="insight-funding" class="panel__insight"></p>
       <p id="insight-open-interest" class="panel__insight"></p>
+      <p id="insight-long-short" class="panel__insight"></p>
       <ul id="derived-legend" class="chip-row" aria-label="Derived metric legend">
         <li><span class="chip chip--derived">DERIVED</span> CVD, EMA regime, volume-at-price, volatility index</li>
         <li>Funding rate and open interest are native CryptoQuant fields (not DERIVED).</li>
+        <li>Long/short account ratios are optional CoinGlass fields (requires <code>CG_API_KEY</code> on the server).</li>
       </ul>
     </section>
 
@@ -196,7 +198,7 @@
 
   <footer class="footer" role="contentinfo">
     <p>
-      Data via CryptoQuant API v2 market endpoints.
+      Data via CryptoQuant API v2 market endpoints; optional CoinGlass L/S ratios when configured.
       Metrics labeled <span class="chip chip--derived">DERIVED</span> are computed in this app.
     </p>
   </footer>

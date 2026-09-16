@@ -182,6 +182,7 @@ function renderTextPanels(data) {
     ['insight-vol', panels.vol],
     ['insight-funding', panels.funding],
     ['insight-open-interest', panels.openInterest],
+    ['insight-long-short', panels.longShort],
   ];
   map.forEach(([id, text]) => {
     const el = document.getElementById(id);
@@ -243,12 +244,37 @@ function renderTextPanels(data) {
     stats.openInterestChangePct != null
       ? `${stats.openInterestChangePct >= 0 ? '+' : ''}${stats.openInterestChangePct.toFixed(2)}%`
       : '—';
-  fillStats(document.getElementById('funding-oi-stats'), [
+  const lsItems = [
     { label: 'Funding latest (CQ)', value: fmtFunding(stats.fundingLatest) },
     { label: 'Funding Δ (sample)', value: fundChg },
     { label: 'Open interest (CQ)', value: fmtUsd(stats.openInterestLatest) },
     { label: 'OI change (sample)', value: oiChg },
-  ]);
+  ];
+
+  // Compact CoinGlass L/S line (optional; same style as funding/OI)
+  const cg = stats.coinglass || {};
+  const g = stats.lsGlobalLatest;
+  const t = stats.lsTopLatest;
+  if (cg.available && g) {
+    lsItems.push({
+      label: 'Global L/S (CG)',
+      value: `${Number(g.long_short_ratio).toFixed(2)} (${Number(g.long_percent).toFixed(1)}% / ${Number(g.short_percent).toFixed(1)}%)`,
+    });
+  }
+  if (cg.available && t) {
+    lsItems.push({
+      label: 'Top L/S (CG)',
+      value: `${Number(t.long_short_ratio).toFixed(2)} (${Number(t.long_percent).toFixed(1)}% / ${Number(t.short_percent).toFixed(1)}%)`,
+    });
+  }
+  if (!cg.available) {
+    lsItems.push({
+      label: 'L/S (CoinGlass)',
+      value: cg.error ? 'unavailable' : 'optional — no key',
+    });
+  }
+
+  fillStats(document.getElementById('funding-oi-stats'), lsItems);
 }
 
 /**

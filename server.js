@@ -1,6 +1,6 @@
 /**
  * Express server: static public/ + GET/POST /api/insight.
- * API key never leaves API/insight.js (process.env.CRYPTOQUANT_API_KEY).
+ * API keys never leave API/insight.js (CRYPTOQUANT_API_KEY; optional CG_API_KEY).
  */
 
 'use strict';
@@ -56,7 +56,9 @@ function sendError(err, res) {
   const status = err.statusCode && Number.isInteger(err.statusCode) ? err.statusCode : 500;
   const message = err.message || 'Internal server error';
   // Scrub accidental key echoes
-  const safe = message.replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
+  const safe = message
+    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replace(/CG-API-KEY\s*[:=]?\s*\S+/gi, 'CG-API-KEY=[REDACTED]');
   res.status(status).json({
     ok: false,
     error: {
@@ -132,5 +134,8 @@ app.listen(PORT, () => {
   console.log(`Crypto Intraday Dashboard listening on port ${PORT}`);
   if (!process.env.CRYPTOQUANT_API_KEY) {
     console.warn('WARNING: CRYPTOQUANT_API_KEY is not set — /api/insight will fail until configured.');
+  }
+  if (!process.env.CG_API_KEY) {
+    console.warn('NOTE: CG_API_KEY is not set — CoinGlass long/short ratios will be skipped.');
   }
 });

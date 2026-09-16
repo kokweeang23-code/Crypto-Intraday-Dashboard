@@ -1,19 +1,27 @@
 /**
  * CryptoQuant insight engine — sole reader of CRYPTOQUANT_API_KEY.
+ * Optionally reads CG_API_KEY for CoinGlass long/short account ratios.
  * Fetches documented v2 CQ aggregated swap endpoints, computes DERIVED
  * metrics, and returns series + stats + insights text for the dashboard.
  *
- * Documented endpoints (https://docs.cryptoquant.com):
+ * Documented CQ endpoints (https://docs.cryptoquant.com):
  *   GET /v2/market/cq/swap/ohlcv
  *   GET /v2/market/cq/swap/liquidation
  *   GET /v2/market/cq/swap/trade
  *   GET /v2/market/cq/swap/funding-rate
  *   GET /v2/market/cq/swap/open-interest
+ *
+ * Optional CoinGlass (https://open-api-v4.coinglass.com):
+ *   GET /api/futures/global-long-short-account-ratio/history
+ *   GET /api/futures/top-long-short-account-ratio/history
  */
 
 'use strict';
 
 const CQ_BASE = 'https://api.cryptoquant.com/v2';
+
+/** Optional CoinGlass v4 open API base (long/short ratios). */
+const CG_BASE = 'https://open-api-v4.coinglass.com';
 
 /** Allowed CQ aggregation windows (market data). */
 const ALLOWED_WINDOWS = Object.freeze(['day', 'hour', '10min', 'min']);
@@ -212,6 +220,331 @@ async function fetchAllMarketSeries(params) {
 
   return { ohlcv, liquidation, trade, funding, openInterest };
 }
+
+/**
+ * Returns the optional CoinGlass API key, or null when unset.
+ * Never expose this value to the client.
+ * @returns {string|null}
+ */
+function getCgApiKey() {
+  const key = process.env.CG_API_KEY;
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    return null;
+  }
+  return key.trim();
+}
+
+/**
+ * Maps a CQ aggregate symbol (e.g. btc_all / eth_all) to a CoinGlass pair.
+ * ETH* → ETHUSDT; everything else defaults to BTCUSDT per product brief.
+ * @param {string} cqSymbol
+ * @returns {string}
+ */
+function mapCqSymbolToCgPair(cqSymbol) {
+  const raw = String(cqSymbol || 'btc_all').trim().toLowerCase();
+  // Brief: ETHUSDT when CQ symbol starts with eth; else BTCUSDT.
+  if (raw.startsWith('eth')) {
+    return 'ETHUSDT';
+  }
+  return 'BTCUSDT';
+}
+
+/**
+ * Maps a CQ window to a CoinGlass interval.
+ * min/10min → 15m, hour → 1h, day → 1d.
+ * @param {string} window
+ * @returns {string}
+ */
+function mapCqWindowToCgInterval(window) {
+  switch (window) {
+    case 'min':
+    case '10min':
+      return '15m';
+    case 'hour':
+      return '1h';
+    case 'day':
+      return '1d';
+    default:
+      return '15m';
+  }
+}
+
+/**
+ * Unwraps a CoinGlass v4 { code, msg, data } envelope into a row array.
+ * @param {unknown} body
+ * @returns {object[]}
+ */
+function unwrapCgData(body) {
+  if (Array.isArray(body)) {
+    return body;
+  }
+  if (!body || typeof body !== 'object') {
+    return [];
+  }
+  const data = body.data;
+  if (Array.isArray(data)) {
+    return data;
+  }
+  if (data && typeof data === 'object') {
+    for (const key of ['list', 'data', 'history']) {
+      if (Array.isArray(data[key])) {
+        return data[key];
+      }
+    }
+  }
+  return [];
+}
+
+/**
+ * Converts a CoinGlass time field (ms or seconds) to an ISO datetime string.
+ * @param {unknown} t
+ * @returns {string|null}
+ */
+function cgTimeToDatetime(t) {
+  const n = Number(t);
+  if (!Number.isFinite(n) || n <= 0) {
+    return null;
+  }
+  const ms = n < 1e12 ? n * 1000 : n;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  return d.toISOString();
+}
+
+/**
+ * Picks the first finite numeric value among candidate field names on a row.
+ * @param {object} row
+ * @param {string[]} keys
+ * @returns {number|null}
+ */
+function pickFiniteNumber(row, keys) {
+  for (const key of keys) {
+    if (row[key] == null || row[key] === '') continue;
+    const n = Number(row[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Normalizes one CoinGlass L/S history row into the dashboard series shape.
+ * Accepts both short field names and v4 global_/top_account_* aliases.
+ * @param {object} row
+ * @returns {{ datetime: string, long_percent: number, short_percent: number, long_short_ratio: number }|null}
+ */
+function normalizeLsRow(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  const datetime = cgTimeToDatetime(
+    row.create_time ?? row.time ?? row.t ?? row.timestamp ?? row.datetime
+  );
+  const longPercent = pickFiniteNumber(row, [
+    'long_percent',
+    'global_account_long_percent',
+    'top_account_long_percent',
+    'longAccount',
+    'long_account',
+  ]);
+  const shortPercent = pickFiniteNumber(row, [
+    'short_percent',
+    'global_account_short_percent',
+    'top_account_short_percent',
+    'shortAccount',
+    'short_account',
+  ]);
+  let ratio = pickFiniteNumber(row, [
+    'long_short_ratio',
+    'global_account_long_short_ratio',
+    'top_account_long_short_ratio',
+    'longShortRatio',
+    'ratio',
+  ]);
+  if (ratio == null && longPercent != null && shortPercent != null && shortPercent !== 0) {
+    ratio = longPercent / shortPercent;
+  }
+  if (!datetime || longPercent == null || shortPercent == null || ratio == null) {
+    return null;
+  }
+  return {
+    datetime,
+    long_percent: longPercent,
+    short_percent: shortPercent,
+    long_short_ratio: ratio,
+  };
+}
+
+/**
+ * Fetches one CoinGlass L/S history endpoint and normalizes rows.
+ * @param {string} path - Absolute path under CG_BASE
+ * @param {{ exchange: string, symbol: string, interval: string, limit: number }} query
+ * @param {string} apiKey
+ * @returns {Promise<object[]>}
+ */
+async function fetchCgLsHistory(path, query, apiKey) {
+  const url = new URL(CG_BASE + path);
+  Object.entries(query).forEach(([k, v]) => {
+    if (v != null && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  });
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'CG-API-KEY': apiKey,
+      Accept: 'application/json',
+    },
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg =
+      (body && (body.msg || body.message)) ||
+      `CoinGlass HTTP ${res.status}`;
+    throw new Error(String(msg).slice(0, 200));
+  }
+
+  // CoinGlass success codes are typically "0" (string) or 0
+  if (body && body.code != null && String(body.code) !== '0') {
+    const msg = body.msg || body.message || `CoinGlass code ${body.code}`;
+    throw new Error(String(msg).slice(0, 200));
+  }
+
+  const rows = unwrapCgData(body);
+  const cleaned = [];
+  rows.forEach((row) => {
+    const norm = normalizeLsRow(row);
+    if (norm) cleaned.push(norm);
+  });
+  cleaned.sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+  return cleaned;
+}
+
+/**
+ * Optionally fetches CoinGlass global + top-trader long/short account ratios.
+ * Never throws: missing key or upstream failure → available:false with safe error.
+ * @param {{ symbol: string, window: string, limit: number }} params
+ * @returns {Promise<{
+ *   available: boolean,
+ *   error?: string,
+ *   pair?: string,
+ *   interval?: string,
+ *   lsGlobal: object[],
+ *   lsTop: object[],
+ * }>}
+ */
+async function fetchCoinGlassLongShort(params) {
+  const apiKey = getCgApiKey();
+  if (!apiKey) {
+    return { available: false, lsGlobal: [], lsTop: [] };
+  }
+
+  const pair = mapCqSymbolToCgPair(params.symbol);
+  const interval = mapCqWindowToCgInterval(params.window);
+  const limit = Math.max(1, Math.min(Number(params.limit) || 1440, 1000));
+  const query = {
+    exchange: 'Binance',
+    symbol: pair,
+    interval,
+    limit,
+  };
+
+  try {
+    const [lsGlobal, lsTop] = await Promise.all([
+      fetchCgLsHistory(
+        '/api/futures/global-long-short-account-ratio/history',
+        query,
+        apiKey
+      ),
+      fetchCgLsHistory(
+        '/api/futures/top-long-short-account-ratio/history',
+        query,
+        apiKey
+      ),
+    ]);
+    const available = lsGlobal.length > 0 || lsTop.length > 0;
+    const out = {
+      available,
+      pair,
+      interval,
+      lsGlobal,
+      lsTop,
+    };
+    if (!available) {
+      out.error = 'empty CoinGlass L/S response';
+    }
+    return out;
+  } catch (err) {
+    const message = (err && err.message) ? String(err.message).slice(0, 200) : 'CoinGlass request failed';
+    // Scrub accidental key material from logs/messages
+    const safe = message.replace(/CG-API-KEY\s*[:=]?\s*\S+/gi, 'CG-API-KEY=[REDACTED]');
+    console.warn('CoinGlass L/S fetch failed:', safe);
+    return {
+      available: false,
+      error: safe,
+      pair,
+      interval,
+      lsGlobal: [],
+      lsTop: [],
+    };
+  }
+}
+
+/**
+ * Builds latest L/S snapshot stats from a normalized series (or null).
+ * @param {object[]} series
+ * @returns {{ long_percent: number, short_percent: number, long_short_ratio: number, datetime: string }|null}
+ */
+function latestLsSnapshot(series) {
+  if (!Array.isArray(series) || !series.length) {
+    return null;
+  }
+  const last = series[series.length - 1];
+  return {
+    long_percent: last.long_percent,
+    short_percent: last.short_percent,
+    long_short_ratio: last.long_short_ratio,
+    datetime: last.datetime,
+  };
+}
+
+/**
+ * Plain-English long/short panel text from CoinGlass global + top snapshots.
+ * @param {{ available: boolean, error?: string, lsGlobalLatest: object|null, lsTopLatest: object|null, pair?: string }} cg
+ * @returns {string}
+ */
+function describeLongShort(cg) {
+  if (!cg || !cg.available) {
+    if (cg && cg.error) {
+      return `Long/short (CoinGlass): unavailable (${cg.error}).`;
+    }
+    return 'Long/short (CoinGlass): skipped — CG_API_KEY not set.';
+  }
+  const parts = [];
+  if (cg.lsGlobalLatest) {
+    const g = cg.lsGlobalLatest;
+    parts.push(
+      `Global accounts L/S ${g.long_short_ratio.toFixed(2)} ` +
+        `(long ${g.long_percent.toFixed(1)}% / short ${g.short_percent.toFixed(1)}%)`
+    );
+  }
+  if (cg.lsTopLatest) {
+    const t = cg.lsTopLatest;
+    parts.push(
+      `Top traders L/S ${t.long_short_ratio.toFixed(2)} ` +
+        `(long ${t.long_percent.toFixed(1)}% / short ${t.short_percent.toFixed(1)}%)`
+    );
+  }
+  if (!parts.length) {
+    return 'Long/short (CoinGlass): no usable rows.';
+  }
+  const pairNote = cg.pair ? ` on Binance ${cg.pair}` : '';
+  return `Long/short (CoinGlass${pairNote}): ${parts.join('; ')}.`;
+}
+
 
 /**
  * Sorts rows ascending by datetime string.
@@ -584,8 +917,9 @@ function summarizeOpenInterest(oiRows) {
 /**
  * Builds human-readable insight paragraphs for UI and Telegram.
  * Funding and open interest notes use native CQ fields (not DERIVED).
+ * Long/short panel uses optional CoinGlass data when available.
  * @param {object} ctx
- * @returns {{ executive: string, panels: { priceLiq: string, vap: string, cvdEma: string, vol: string, funding: string, openInterest: string } }}
+ * @returns {{ executive: string, panels: { priceLiq: string, vap: string, cvdEma: string, vol: string, funding: string, openInterest: string, longShort: string } }}
  */
 function buildInsightsText(ctx) {
   const {
@@ -600,6 +934,7 @@ function buildInsightsText(ctx) {
     vol,
     funding,
     openInterest,
+    coinglass,
   } = ctx;
 
   const priceStr = price != null ? formatNum(price, 2) : 'n/a';
@@ -639,8 +974,9 @@ function buildInsightsText(ctx) {
 
   const fundingNote = describeFunding(funding.latest, funding.change);
   const oiNote = describeOpenInterest(openInterest.latest, openInterest.changePct);
+  const lsNote = describeLongShort(coinglass || { available: false });
 
-  const executive = [
+  const executiveParts = [
     `${symbol.toUpperCase()} intraday (${window}): last ${priceStr} (${chg}).`,
     `EMA regime (DERIVED ${EMA_FAST_PERIOD}/${EMA_SLOW_PERIOD}): ${regime}.`,
     `CVD (DERIVED): ${cvdTrend}.`,
@@ -648,9 +984,13 @@ function buildInsightsText(ctx) {
       `(L $${formatCompact(liq.totals.long_liquidations_usd)} / S $${formatCompact(liq.totals.short_liquidations_usd)}).`,
     fundingNote,
     oiNote,
-    `Realized vol (DERIVED): ${volPct}.`,
-    vapNote,
-  ].join(' ');
+  ];
+  if (coinglass && coinglass.available) {
+    executiveParts.push(lsNote);
+  }
+  executiveParts.push(`Realized vol (DERIVED): ${volPct}.`, vapNote);
+
+  const executive = executiveParts.join(' ');
 
   return {
     executive,
@@ -665,6 +1005,7 @@ function buildInsightsText(ctx) {
       vol: `Volatility index DERIVED: ${volPct}. ${vol.caveat}`,
       funding: fundingNote,
       openInterest: oiNote,
+      longShort: lsNote,
     },
   };
 }
@@ -715,7 +1056,7 @@ function describeOpenInterest(latest, changePct) {
     changePct != null
       ? ` (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}% over sample)`
       : '';
-  return `Open interest (CQ): ${formatCompact(latest)}${pctStr}.${trend}`;
+  return `Open interest (CQ): $${formatCompact(latest)}${pctStr}.${trend}`;
 }
 
 /**
@@ -764,8 +1105,12 @@ function formatCompact(n) {
  */
 async function getInsight(rawParams) {
   const params = validateInsightParams(rawParams || {});
-  const { ohlcv, liquidation, trade, funding, openInterest } =
-    await fetchAllMarketSeries(params);
+  // CQ is required; CoinGlass is best-effort and must not fail the insight.
+  const [{ ohlcv, liquidation, trade, funding, openInterest }, cgRaw] =
+    await Promise.all([
+      fetchAllMarketSeries(params),
+      fetchCoinGlassLongShort(params),
+    ]);
 
   const priceSeries = sortByDatetimeAsc(ohlcv).map((r) => ({
     datetime: r.datetime,
@@ -792,6 +1137,15 @@ async function getInsight(rawParams) {
   const fundingSummary = summarizeFunding(funding);
   const oiSummary = summarizeOpenInterest(openInterest);
 
+  const lsGlobalLatest = latestLsSnapshot(cgRaw.lsGlobal);
+  const lsTopLatest = latestLsSnapshot(cgRaw.lsTop);
+  const coinglassStats = {
+    available: Boolean(cgRaw.available),
+  };
+  if (cgRaw.pair) coinglassStats.pair = cgRaw.pair;
+  if (cgRaw.interval) coinglassStats.interval = cgRaw.interval;
+  if (cgRaw.error) coinglassStats.error = cgRaw.error;
+
   const insights = buildInsightsText({
     symbol: params.symbol,
     window: params.window,
@@ -804,7 +1158,41 @@ async function getInsight(rawParams) {
     vol,
     funding: fundingSummary,
     openInterest: oiSummary,
+    coinglass: {
+      available: coinglassStats.available,
+      error: cgRaw.error,
+      pair: cgRaw.pair,
+      lsGlobalLatest,
+      lsTopLatest,
+    },
   });
+
+  const sources = [
+    {
+      id: 'cryptoquant',
+      required: true,
+      baseUrl: CQ_BASE,
+      endpoints: [
+        '/market/cq/swap/ohlcv',
+        '/market/cq/swap/liquidation',
+        '/market/cq/swap/trade',
+        '/market/cq/swap/funding-rate',
+        '/market/cq/swap/open-interest',
+      ],
+    },
+    {
+      id: 'coinglass',
+      required: false,
+      optional: true,
+      available: coinglassStats.available,
+      baseUrl: CG_BASE,
+      endpoints: [
+        '/api/futures/global-long-short-account-ratio/history',
+        '/api/futures/top-long-short-account-ratio/history',
+      ],
+      note: 'Optional — enabled when CG_API_KEY is set; failures do not block CQ insight.',
+    },
+  ];
 
   return {
     ok: true,
@@ -818,6 +1206,8 @@ async function getInsight(rawParams) {
       volatility: vol.series,
       funding: fundingSummary.series,
       openInterest: oiSummary.series,
+      lsGlobal: cgRaw.lsGlobal,
+      lsTop: cgRaw.lsTop,
     },
     stats: {
       lastPrice: lastClose,
@@ -832,17 +1222,23 @@ async function getInsight(rawParams) {
       fundingChange: fundingSummary.change,
       openInterestLatest: oiSummary.latest,
       openInterestChangePct: oiSummary.changePct,
+      lsGlobalLatest,
+      lsTopLatest,
+      coinglass: coinglassStats,
       sampleCounts: {
         ohlcv: ohlcv.length,
         liquidation: liquidation.length,
         trade: trade.length,
         funding: funding.length,
         openInterest: openInterest.length,
+        lsGlobal: cgRaw.lsGlobal.length,
+        lsTop: cgRaw.lsTop.length,
       },
     },
     insights,
     meta: {
       source: 'cryptoquant',
+      sources,
       baseUrl: CQ_BASE,
       endpoints: [
         '/market/cq/swap/ohlcv',
@@ -892,4 +1288,8 @@ module.exports = {
   computeVolatilityIndex,
   summarizeFunding,
   summarizeOpenInterest,
+  fetchCoinGlassLongShort,
+  mapCqSymbolToCgPair,
+  mapCqWindowToCgInterval,
+  normalizeLsRow,
 };
