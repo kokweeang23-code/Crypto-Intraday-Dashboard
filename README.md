@@ -1,6 +1,6 @@
 # CryptoQuant Intraday Dashboard
 
-Vanilla JS + Express dashboard that batches three **documented** CryptoQuant API v2 market endpoints, computes clearly labeled **DERIVED** metrics, and serves an accessible Material Design UI plus a Telegram brief bot.
+Vanilla JS + Express dashboard that batches five **documented** CryptoQuant API v2 market endpoints, computes clearly labeled **DERIVED** metrics, and serves an accessible Material Design UI plus a Telegram brief bot.
 
 > Do **not** invent CQ endpoints. Source of truth: [docs.cryptoquant.com](https://docs.cryptoquant.com).
 
@@ -13,6 +13,8 @@ Base: `https://api.cryptoquant.com/v2` — auth: `Authorization: Bearer {CRYPTOQ
 | Price OHLCV | `/market/cq/swap/ohlcv?symbol=btc_all&window=min` | Native CQ |
 | Long/short liquidations | `/market/cq/swap/liquidation?symbol=btc_all&window=min` | Native CQ |
 | Trade flow | `/market/cq/swap/trade?symbol=btc_all&window=min` | Native CQ; buy/sell volumes for CVD |
+| Funding rate | `/market/cq/swap/funding-rate?symbol=btc_all&window=min` | Native CQ; positive = longs pay shorts |
+| Open interest | `/market/cq/swap/open-interest?symbol=btc_all&window=min` | Native CQ; outstanding swap notional |
 
 Windows: `day` \| `hour` \| `10min` \| `min`. Limit max `10000` (dashboard default `1440` ≈ 24h at `min`).
 
@@ -78,7 +80,7 @@ node server.js
 # or: npm start
 ```
 
-Open `http://127.0.0.1:3000`. Use **Refresh insight** to batch the three CQ calls.
+Open `http://127.0.0.1:3000`. Use **Refresh insight** to batch the five CQ calls (OHLCV, liquidation, trade, funding-rate, open-interest).
 
 ### API
 

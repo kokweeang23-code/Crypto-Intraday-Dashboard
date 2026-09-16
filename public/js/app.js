@@ -37,6 +37,20 @@ function fmtUsd(n) {
 }
 
 /**
+ * Formats a native CQ funding_rate for compact UI display.
+ * @param {number|null|undefined} n
+ * @returns {string}
+ */
+function fmtFunding(n) {
+  if (n == null || Number.isNaN(Number(n))) return '—';
+  const v = Number(n);
+  const abs = Math.abs(v);
+  if (abs >= 0.01) return v.toFixed(4);
+  if (abs >= 0.0001) return v.toFixed(6);
+  return v.toExponential(2);
+}
+
+/**
  * Converts ISO timestamp to Asia/Singapore display string.
  * @param {string|undefined} iso
  * @returns {string}
@@ -166,6 +180,8 @@ function renderTextPanels(data) {
     ['insight-vap', panels.vap],
     ['insight-cvd-ema', panels.cvdEma],
     ['insight-vol', panels.vol],
+    ['insight-funding', panels.funding],
+    ['insight-open-interest', panels.openInterest],
   ];
   map.forEach(([id, text]) => {
     const el = document.getElementById(id);
@@ -216,6 +232,22 @@ function renderTextPanels(data) {
       label: 'Samples (OHLCV)',
       value: String((stats.sampleCounts && stats.sampleCounts.ohlcv) || 0),
     },
+  ]);
+
+  // Native CQ funding + open interest (not DERIVED)
+  const fundChg =
+    stats.fundingChange != null
+      ? `${stats.fundingChange >= 0 ? '+' : ''}${fmtFunding(stats.fundingChange)}`
+      : '—';
+  const oiChg =
+    stats.openInterestChangePct != null
+      ? `${stats.openInterestChangePct >= 0 ? '+' : ''}${stats.openInterestChangePct.toFixed(2)}%`
+      : '—';
+  fillStats(document.getElementById('funding-oi-stats'), [
+    { label: 'Funding latest (CQ)', value: fmtFunding(stats.fundingLatest) },
+    { label: 'Funding Δ (sample)', value: fundChg },
+    { label: 'Open interest (CQ)', value: fmtUsd(stats.openInterestLatest) },
+    { label: 'OI change (sample)', value: oiChg },
   ]);
 }
 

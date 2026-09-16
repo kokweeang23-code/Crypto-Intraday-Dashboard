@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="CryptoQuant intraday dashboard — price, liquidations, CVD, EMA regime, volume-at-price, volatility">
+  <meta name="description" content="CryptoQuant intraday dashboard — price, liquidations, funding, open interest, CVD, EMA regime, volume-at-price, volatility">
   <title>CryptoQuant Intraday Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -121,8 +121,12 @@
         Executive summary
       </h2>
       <p id="executive-summary" class="summary__text">Load data to see the intraday brief.</p>
+      <dl id="funding-oi-stats" class="stat-grid" aria-label="Funding rate and open interest"></dl>
+      <p id="insight-funding" class="panel__insight"></p>
+      <p id="insight-open-interest" class="panel__insight"></p>
       <ul id="derived-legend" class="chip-row" aria-label="Derived metric legend">
         <li><span class="chip chip--derived">DERIVED</span> CVD, EMA regime, volume-at-price, volatility index</li>
+        <li>Funding rate and open interest are native CryptoQuant fields (not DERIVED).</li>
       </ul>
     </section>
 

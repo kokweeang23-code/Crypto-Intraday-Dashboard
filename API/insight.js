@@ -7,6 +7,8 @@
  *   GET /v2/market/cq/swap/ohlcv
  *   GET /v2/market/cq/swap/liquidation
  *   GET /v2/market/cq/swap/trade
+ *   GET /v2/market/cq/swap/funding-rate
+ *   GET /v2/market/cq/swap/open-interest
  */
 
 'use strict';
@@ -186,9 +188,10 @@ async function fetchCq(path, query) {
 }
 
 /**
- * Batches the three documented CQ swap endpoints for one refresh.
+ * Batches the five documented CQ swap endpoints for one refresh.
+ * Native CQ only: ohlcv, liquidation, trade, funding-rate, open-interest.
  * @param {{ symbol: string, window: string, from: string|null, to: string|null, limit: number }} params
- * @returns {Promise<{ ohlcv: object[], liquidation: object[], trade: object[] }>}
+ * @returns {Promise<{ ohlcv: object[], liquidation: object[], trade: object[], funding: object[], openInterest: object[] }>}
  */
 async function fetchAllMarketSeries(params) {
   const query = {
@@ -199,13 +202,15 @@ async function fetchAllMarketSeries(params) {
   if (params.from) query.from = params.from;
   if (params.to) query.to = params.to;
 
-  const [ohlcv, liquidation, trade] = await Promise.all([
+  const [ohlcv, liquidation, trade, funding, openInterest] = await Promise.all([
     fetchCq('/market/cq/swap/ohlcv', query),
     fetchCq('/market/cq/swap/liquidation', query),
     fetchCq('/market/cq/swap/trade', query),
+    fetchCq('/market/cq/swap/funding-rate', query),
+    fetchCq('/market/cq/swap/open-interest', query),
   ]);
 
-  return { ohlcv, liquidation, trade };
+  return { ohlcv, liquidation, trade, funding, openInterest };
 }
 
 /**
@@ -529,9 +534,58 @@ function summarizeLiquidations(liqRows) {
 }
 
 /**
+ * Normalizes native CQ funding-rate rows and computes latest + sample change.
+ * Native CQ field `funding_rate` (not DERIVED): positive = longs pay shorts.
+ * @param {object[]} fundingRows
+ * @returns {{ series: { datetime: string, funding_rate: number }[], latest: number|null, change: number|null }}
+ */
+function summarizeFunding(fundingRows) {
+  const sorted = sortByDatetimeAsc(fundingRows);
+  const series = sorted.map((r) => ({
+    datetime: r.datetime,
+    funding_rate: Number(r.funding_rate),
+  })).filter((r) => Number.isFinite(r.funding_rate));
+
+  const latest = series.length ? series[series.length - 1].funding_rate : null;
+  // Sample change: latest minus earliest bar in the returned window (easy delta lookback).
+  let change = null;
+  if (series.length >= 2) {
+    change = series[series.length - 1].funding_rate - series[0].funding_rate;
+    // Trim binary float noise for typical funding magnitudes.
+    change = Number(change.toPrecision(12));
+  }
+
+  return { series, latest, change };
+}
+
+/**
+ * Normalizes native CQ open-interest rows and computes latest + optional pct change.
+ * Native CQ field `open_interest` (not DERIVED).
+ * @param {object[]} oiRows
+ * @returns {{ series: { datetime: string, open_interest: number }[], latest: number|null, changePct: number|null }}
+ */
+function summarizeOpenInterest(oiRows) {
+  const sorted = sortByDatetimeAsc(oiRows);
+  const series = sorted.map((r) => ({
+    datetime: r.datetime,
+    open_interest: Number(r.open_interest),
+  })).filter((r) => Number.isFinite(r.open_interest));
+
+  const latest = series.length ? series[series.length - 1].open_interest : null;
+  const first = series.length ? series[0].open_interest : null;
+  const changePct =
+    latest != null && first != null && first !== 0
+      ? ((latest - first) / first) * 100
+      : null;
+
+  return { series, latest, changePct };
+}
+
+/**
  * Builds human-readable insight paragraphs for UI and Telegram.
+ * Funding and open interest notes use native CQ fields (not DERIVED).
  * @param {object} ctx
- * @returns {{ executive: string, panels: { priceLiq: string, vap: string, cvdEma: string, vol: string } }}
+ * @returns {{ executive: string, panels: { priceLiq: string, vap: string, cvdEma: string, vol: string, funding: string, openInterest: string } }}
  */
 function buildInsightsText(ctx) {
   const {
@@ -544,6 +598,8 @@ function buildInsightsText(ctx) {
     regime,
     vap,
     vol,
+    funding,
+    openInterest,
   } = ctx;
 
   const priceStr = price != null ? formatNum(price, 2) : 'n/a';
@@ -581,12 +637,17 @@ function buildInsightsText(ctx) {
   const volPct =
     vol.latest != null ? `${(vol.latest * 100).toFixed(1)}% ann.` : 'n/a';
 
+  const fundingNote = describeFunding(funding.latest, funding.change);
+  const oiNote = describeOpenInterest(openInterest.latest, openInterest.changePct);
+
   const executive = [
     `${symbol.toUpperCase()} intraday (${window}): last ${priceStr} (${chg}).`,
     `EMA regime (DERIVED ${EMA_FAST_PERIOD}/${EMA_SLOW_PERIOD}): ${regime}.`,
     `CVD (DERIVED): ${cvdTrend}.`,
     `Liq bias: ${liq.totals.bias.replace(/_/g, ' ')} ` +
       `(L $${formatCompact(liq.totals.long_liquidations_usd)} / S $${formatCompact(liq.totals.short_liquidations_usd)}).`,
+    fundingNote,
+    oiNote,
     `Realized vol (DERIVED): ${volPct}.`,
     vapNote,
   ].join(' ');
@@ -602,8 +663,71 @@ function buildInsightsText(ctx) {
         `CVD is DERIVED as cumsum(base_buy_volume − base_sell_volume); trend ${cvdTrend}. ` +
         `EMA regime DERIVED from close vs EMA${EMA_SLOW_PERIOD} (fast EMA${EMA_FAST_PERIOD}): ${regime}.`,
       vol: `Volatility index DERIVED: ${volPct}. ${vol.caveat}`,
+      funding: fundingNote,
+      openInterest: oiNote,
     },
   };
+}
+
+/**
+ * Plain-language funding note from native CQ funding_rate.
+ * Positive = longs pay shorts; negative = shorts pay longs.
+ * @param {number|null} latest
+ * @param {number|null} change
+ * @returns {string}
+ */
+function describeFunding(latest, change) {
+  if (latest == null || !Number.isFinite(latest)) {
+    return 'Funding (CQ): n/a.';
+  }
+  const who =
+    latest > 0
+      ? 'longs pay shorts (bullish leverage tilt)'
+      : latest < 0
+        ? 'shorts pay longs (bearish leverage tilt)'
+        : 'balanced (near zero)';
+  const chgStr =
+    change != null && Number.isFinite(change)
+      ? ` Sample Δ ${change >= 0 ? '+' : ''}${formatFundingRate(change)}.`
+      : '';
+  return `Funding (CQ): ${formatFundingRate(latest)} — ${who}.${chgStr}`;
+}
+
+/**
+ * Plain-language open-interest note from native CQ open_interest.
+ * @param {number|null} latest
+ * @param {number|null} changePct
+ * @returns {string}
+ */
+function describeOpenInterest(latest, changePct) {
+  if (latest == null || !Number.isFinite(latest)) {
+    return 'Open interest (CQ): n/a.';
+  }
+  const trend =
+    changePct == null
+      ? ''
+      : changePct > 0.5
+        ? ' Rising OI — new leverage entering.'
+        : changePct < -0.5
+          ? ' Falling OI — positions closing or liquidated.'
+          : ' OI roughly flat over the sample.';
+  const pctStr =
+    changePct != null
+      ? ` (${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}% over sample)`
+      : '';
+  return `Open interest (CQ): ${formatCompact(latest)}${pctStr}.${trend}`;
+}
+
+/**
+ * Formats a funding rate with enough precision for typical CQ magnitudes.
+ * @param {number} n
+ * @returns {string}
+ */
+function formatFundingRate(n) {
+  const abs = Math.abs(n);
+  if (abs >= 0.01) return n.toFixed(4);
+  if (abs >= 0.0001) return n.toFixed(6);
+  return n.toExponential(2);
 }
 
 /**
@@ -634,12 +758,14 @@ function formatCompact(n) {
 
 /**
  * Main entry: validate params, batch CQ calls, compute derived metrics, insights.
+ * Also exposes native CQ funding_rate and open_interest series/stats.
  * @param {Record<string, unknown>} rawParams
  * @returns {Promise<object>}
  */
 async function getInsight(rawParams) {
   const params = validateInsightParams(rawParams || {});
-  const { ohlcv, liquidation, trade } = await fetchAllMarketSeries(params);
+  const { ohlcv, liquidation, trade, funding, openInterest } =
+    await fetchAllMarketSeries(params);
 
   const priceSeries = sortByDatetimeAsc(ohlcv).map((r) => ({
     datetime: r.datetime,
@@ -663,6 +789,8 @@ async function getInsight(rawParams) {
   const ema = computeEmaRegimeSeries(ohlcv);
   const vap = computeVolumeAtPrice(ohlcv);
   const vol = computeVolatilityIndex(ohlcv, params.window);
+  const fundingSummary = summarizeFunding(funding);
+  const oiSummary = summarizeOpenInterest(openInterest);
 
   const insights = buildInsightsText({
     symbol: params.symbol,
@@ -674,6 +802,8 @@ async function getInsight(rawParams) {
     regime: ema.regime,
     vap,
     vol,
+    funding: fundingSummary,
+    openInterest: oiSummary,
   });
 
   return {
@@ -686,6 +816,8 @@ async function getInsight(rawParams) {
       ema: ema.series,
       volumeAtPrice: vap.bins,
       volatility: vol.series,
+      funding: fundingSummary.series,
+      openInterest: oiSummary.series,
     },
     stats: {
       lastPrice: lastClose,
@@ -696,10 +828,16 @@ async function getInsight(rawParams) {
       cvdLatest: cvdSeries.length ? cvdSeries[cvdSeries.length - 1].cvd : null,
       volatilityLatest: vol.latest,
       volatilityFullSample: vol.fullSample,
+      fundingLatest: fundingSummary.latest,
+      fundingChange: fundingSummary.change,
+      openInterestLatest: oiSummary.latest,
+      openInterestChangePct: oiSummary.changePct,
       sampleCounts: {
         ohlcv: ohlcv.length,
         liquidation: liquidation.length,
         trade: trade.length,
+        funding: funding.length,
+        openInterest: openInterest.length,
       },
     },
     insights,
@@ -710,6 +848,8 @@ async function getInsight(rawParams) {
         '/market/cq/swap/ohlcv',
         '/market/cq/swap/liquidation',
         '/market/cq/swap/trade',
+        '/market/cq/swap/funding-rate',
+        '/market/cq/swap/open-interest',
       ],
       derived: {
         cvd: {
@@ -750,4 +890,6 @@ module.exports = {
   computeEma,
   computeVolumeAtPrice,
   computeVolatilityIndex,
+  summarizeFunding,
+  summarizeOpenInterest,
 };
