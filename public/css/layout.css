@@ -1,0 +1,115 @@
+/**
+ * Global layout, typography, and structural grid.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--md-font);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--md-sys-color-on-surface);
+  background: radial-gradient(ellipse at top, #1a2233 0%, var(--md-sys-color-surface) 55%);
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--md-space-4);
+  top: -100px;
+  z-index: 1000;
+  padding: var(--md-space-2) var(--md-space-4);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border-radius: var(--md-radius-sm);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.skip-link:focus {
+  top: var(--md-space-4);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.app-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--md-space-3);
+  padding: var(--md-space-4) var(--md-space-5);
+  background: var(--md-sys-color-surface-container);
+  box-shadow: var(--md-elevation-1);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.app-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+
+.app-bar__brand .material-icons {
+  color: var(--md-sys-color-primary);
+  font-size: 28px;
+}
+
+.app-bar__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.app-bar__subtitle {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+  font-family: var(--md-font-mono);
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--md-space-5) var(--md-space-4) var(--md-space-6);
+}
+
+.page:focus {
+  outline: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--md-space-5);
+  margin-top: var(--md-space-5);
+}
+
+@media (min-width: 960px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.footer {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--md-space-4);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.footer p {
+  margin: 0;
+}

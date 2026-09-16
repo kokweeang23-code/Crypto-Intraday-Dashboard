@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CryptoQuant intraday dashboard — price, liquidations, CVD, EMA regime, volume-at-price, volatility">
+  <title>CryptoQuant Intraday Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+  <script src="/js/api.js" defer></script>
+  <script src="/js/charts.js" defer></script>
+  <script src="/js/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="app-bar" role="banner">
+    <div class="app-bar__brand">
+      <span class="material-icons" aria-hidden="true">candlestick_chart</span>
+      <h1 class="app-bar__title">CryptoQuant Intraday</h1>
+    </div>
+    <p class="app-bar__subtitle" id="generated-at" aria-live="polite">Awaiting data…</p>
+  </header>
+
+  <main id="main-content" class="page" tabindex="-1">
+    <section class="card controls" aria-labelledby="controls-heading">
+      <h2 id="controls-heading" class="card__title">
+        <span class="material-icons" aria-hidden="true">tune</span>
+        Query controls
+      </h2>
+      <form id="insight-form" class="controls__form" novalidate>
+        <div class="field">
+          <label for="symbol">Symbol</label>
+          <input
+            id="symbol"
+            name="symbol"
+            type="text"
+            value="btc_all"
+            autocomplete="off"
+            spellcheck="false"
+            required
+            pattern="[a-z0-9]{2,16}_[a-z0-9]{2,16}"
+            aria-describedby="symbol-hint"
+          >
+          <p id="symbol-hint" class="field__hint">CQ aggregate, e.g. btc_all or eth_all</p>
+        </div>
+        <div class="field">
+          <label for="window">Window</label>
+          <select id="window" name="window" aria-describedby="window-hint">
+            <option value="min" selected>min</option>
+            <option value="10min">10min</option>
+            <option value="hour">hour</option>
+            <option value="day">day</option>
+          </select>
+          <p id="window-hint" class="field__hint">Aggregation interval</p>
+        </div>
+        <div class="field">
+          <label for="limit">Limit</label>
+          <input
+            id="limit"
+            name="limit"
+            type="number"
+            value="1440"
+            min="1"
+            max="10000"
+            step="1"
+            required
+            aria-describedby="limit-hint"
+          >
+          <p id="limit-hint" class="field__hint">Rows 1–10000 (default 1440 ≈ 24h @ min)</p>
+        </div>
+        <div class="field">
+          <label for="from">From (optional)</label>
+          <input
+            id="from"
+            name="from"
+            type="text"
+            placeholder="YYYYMMDDTHHMMSS"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="from-hint"
+          >
+          <p id="from-hint" class="field__hint">UTC start; day window also accepts YYYYMMDD</p>
+        </div>
+        <div class="field">
+          <label for="to">To (optional)</label>
+          <input
+            id="to"
+            name="to"
+            type="text"
+            placeholder="YYYYMMDDTHHMMSS"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="to-hint"
+          >
+          <p id="to-hint" class="field__hint">UTC end</p>
+        </div>
+        <div class="controls__actions">
+          <button type="submit" id="refresh-btn" class="btn btn--primary">
+            <span class="material-icons" aria-hidden="true">refresh</span>
+            Refresh insight
+          </button>
+          <button type="button" id="copy-brief-btn" class="btn btn--tonal" disabled>
+            <span class="material-icons" aria-hidden="true">content_copy</span>
+            Copy Telegram brief
+          </button>
+        </div>
+      </form>
+      <div id="status-region" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="card summary" aria-labelledby="summary-heading">
+      <h2 id="summary-heading" class="card__title">
+        <span class="material-icons" aria-hidden="true">summarize</span>
+        Executive summary
+      </h2>
+      <p id="executive-summary" class="summary__text">Load data to see the intraday brief.</p>
+      <ul id="derived-legend" class="chip-row" aria-label="Derived metric legend">
+        <li><span class="chip chip--derived">DERIVED</span> CVD, EMA regime, volume-at-price, volatility index</li>
+      </ul>
+    </section>
+
+    <div class="grid">
+      <section class="card panel" aria-labelledby="panel-price-heading">
+        <div class="panel__header">
+          <h2 id="panel-price-heading" class="card__title">
+            <span class="material-icons" aria-hidden="true">show_chart</span>
+            Price + liquidations
+          </h2>
+          <dl id="price-liq-stats" class="stat-grid"></dl>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-price-liq" role="img" aria-label="Price and long short liquidations chart"></canvas>
+        </div>
+        <p id="insight-price-liq" class="panel__insight"></p>
+      </section>
+
+      <section class="card panel" aria-labelledby="panel-vap-heading">
+        <div class="panel__header">
+          <h2 id="panel-vap-heading" class="card__title">
+            <span class="material-icons" aria-hidden="true">waterfall_chart</span>
+            Volume-at-price liquidity
+            <span class="chip chip--derived" title="Computed locally from OHLCV; not a CQ published metric">DERIVED</span>
+          </h2>
+        </div>
+        <div class="chart-wrap chart-wrap--tall">
+          <canvas id="chart-vap" role="img" aria-label="Volume at price histogram derived from OHLCV"></canvas>
+        </div>
+        <p id="insight-vap" class="panel__insight"></p>
+        <p class="caveat">Caveat: candle proxy using typical price (H+L+C)/3 — not tick-level VAP.</p>
+      </section>
+
+      <section class="card panel" aria-labelledby="panel-cvd-heading">
+        <div class="panel__header">
+          <h2 id="panel-cvd-heading" class="card__title">
+            <span class="material-icons" aria-hidden="true">stacked_line_chart</span>
+            CVD + EMA regime
+            <span class="chip chip--derived">DERIVED</span>
+          </h2>
+          <dl id="cvd-ema-stats" class="stat-grid"></dl>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-cvd-ema" role="img" aria-label="CVD and EMA regime chart"></canvas>
+        </div>
+        <p id="insight-cvd-ema" class="panel__insight"></p>
+        <p class="caveat">CVD = cumsum(base_buy − base_sell). EMA regime uses periods 12 / 26 on close.</p>
+      </section>
+
+      <section class="card panel" aria-labelledby="panel-vol-heading">
+        <div class="panel__header">
+          <h2 id="panel-vol-heading" class="card__title">
+            <span class="material-icons" aria-hidden="true">speed</span>
+            Volatility index
+            <span class="chip chip--derived">DERIVED</span>
+          </h2>
+          <dl id="vol-stats" class="stat-grid"></dl>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-vol" role="img" aria-label="Annualized realized volatility chart"></canvas>
+        </div>
+        <p id="insight-vol" class="panel__insight"></p>
+        <p class="caveat">Annualized realized vol from log returns — not a CryptoQuant published index.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer" role="contentinfo">
+    <p>
+      Data via CryptoQuant API v2 market endpoints.
+      Metrics labeled <span class="chip chip--derived">DERIVED</span> are computed in this app.
+    </p>
+  </footer>
+</body>
+</html>
