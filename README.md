@@ -46,7 +46,7 @@ These are **not** CryptoQuant published series. They are computed in `API/insigh
 | Metric | Formula / method | Caveat |
 | --- | --- | --- |
 | **CVD** | `cumsum(base_buy_volume - base_sell_volume)` from trade endpoint | Not a native CQ field |
-| **EMA regime** | EMA(12) / EMA(26) of OHLCV `close`; bull / bear / chop vs slow EMA (±0.25% band) | Periods documented; not a CQ indicator |
+| **EMA regime** | EMA(9) / EMA(26) of OHLCV `close`; bull / bear / chop vs slow EMA (±0.25% band) | Periods documented; not a CQ indicator |
 | **Volume-at-price** | Bin OHLCV `volume` by typical price `(H+L+C)/3` | Candle proxy only — true VAP needs ticks/order book |
 | **Volatility index** | Annualized realized vol = `stdev(log returns) * sqrt(periods_per_year)` | Not a CQ published index |
 

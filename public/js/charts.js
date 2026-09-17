@@ -266,7 +266,7 @@ function renderCvdEmaChart(canvas, data) {
         },
         {
           type: 'line',
-          label: `EMA ${data.stats.emaPeriods?.fast || 12} (DERIVED)`,
+          label: `EMA ${data.stats.emaPeriods?.fast || 9} (DERIVED)`,
           data: emaFast,
           yAxisID: 'yPrice',
           borderColor: '#fdd663',

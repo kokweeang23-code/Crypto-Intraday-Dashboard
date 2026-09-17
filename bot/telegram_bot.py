@@ -93,7 +93,7 @@ def format_telegram_brief(payload: Dict[str, Any]) -> str:
         escape_md(executive),
         "",
         f"Regime: `{stats.get('emaRegime', 'n/a')}` "
-        f"(EMA DERIVED { (stats.get('emaPeriods') or {}).get('fast', 12) }/"
+        f"(EMA DERIVED { (stats.get('emaPeriods') or {}).get('fast', 9) }/"
         f"{ (stats.get('emaPeriods') or {}).get('slow', 26) })",
         f"CVD latest (DERIVED): `{stats.get('cvdLatest', 'n/a')}`",
     ]

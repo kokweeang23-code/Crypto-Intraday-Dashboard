@@ -212,7 +212,7 @@ function renderTextPanels(data) {
       label: 'EMA periods',
       value: stats.emaPeriods
         ? `${stats.emaPeriods.fast} / ${stats.emaPeriods.slow}`
-        : '12 / 26',
+        : '9 / 26',
     },
   ]);
 

@@ -30,7 +30,7 @@ const ALLOWED_WINDOWS = Object.freeze(['day', 'hour', '10min', 'min']);
 const ALLOWED_SYMBOL_PATTERN = /^[a-z0-9]{2,16}_[a-z0-9]{2,16}$/;
 
 /** EMA periods used for regime detection (documented as DERIVED). */
-const EMA_FAST_PERIOD = 12;
+const EMA_FAST_PERIOD = 9;
 const EMA_SLOW_PERIOD = 26;
 
 /** Number of price bins for volume-at-price histogram (DERIVED). */
@@ -583,7 +583,7 @@ function computeEma(closes, period) {
 
 /**
  * Classifies EMA regime from price vs slow EMA (and fast/slow relationship).
- * DERIVED — periods: fast=12, slow=26.
+ * DERIVED — periods: fast=9, slow=26.
  * @param {number} close
  * @param {number|null} emaFast
  * @param {number|null} emaSlow
