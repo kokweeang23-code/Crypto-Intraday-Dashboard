@@ -72,6 +72,7 @@ function validationError(message) {
  *   exchangeList: string,
  *   priceExchange: string,
  *   range: string,
+ *   unit: 'coin'|'usd',
  * }}
  */
 function validateStructureParams(raw) {
@@ -113,6 +114,18 @@ function validateStructureParams(raw) {
       ? String(raw.range).trim()
       : DEFAULT_ORDERBOOK_RANGE;
 
+  // Notional unit for CVD / OI / bid-ask (price + funding unchanged).
+  // Default coin: CoinGlass supports unit=coin|usd on CVD and OI;
+  // bid/ask uses quantity fields for coin and usd fields for usd.
+  let unit = 'coin';
+  if (raw.unit != null && String(raw.unit).trim()) {
+    const u = String(raw.unit).trim().toLowerCase();
+    if (u !== 'coin' && u !== 'usd') {
+      throw validationError('Invalid unit. Allowed: coin, usd');
+    }
+    unit = u;
+  }
+
   return {
     symbol: symbolRaw,
     pair: `${symbolRaw}USDT`,
@@ -121,6 +134,7 @@ function validateStructureParams(raw) {
     exchangeList,
     priceExchange,
     range,
+    unit,
   };
 }
 
@@ -262,7 +276,7 @@ function rowsToTimeMap(rows, valueFn) {
  * }>}
  */
 async function fetchAllStructureMaps(params, apiKey) {
-  const { symbol, pair, interval, limit, exchangeList, priceExchange, range } = params;
+  const { symbol, pair, interval, limit, exchangeList, priceExchange, range, unit } = params;
   const errors = {};
 
   const tasks = {
@@ -284,7 +298,7 @@ async function fetchAllStructureMaps(params, apiKey) {
           symbol,
           interval,
           limit,
-          unit: 'usd',
+          unit,
         },
         apiKey
       ).then((rows) =>
@@ -300,7 +314,7 @@ async function fetchAllStructureMaps(params, apiKey) {
           symbol,
           interval,
           limit,
-          unit: 'usd',
+          unit,
         },
         apiKey
       ).then((rows) =>
@@ -321,7 +335,7 @@ async function fetchAllStructureMaps(params, apiKey) {
     oi: () =>
       fetchCg(
         '/api/futures/open-interest/aggregated-history',
-        { symbol, interval, limit, unit: 'usd' },
+        { symbol, interval, limit, unit },
         apiKey
       ).then((rows) =>
         rowsToTimeMap(rows, (r) =>
@@ -374,16 +388,34 @@ async function fetchAllStructureMaps(params, apiKey) {
       apiKey
     );
     out.bidAskDelta = rowsToTimeMap(rows, (r) => {
-      const bids = pickFiniteNumber(r, [
-        'aggregated_bids_usd',
-        'bids_usd',
-        'aggregatedBidsUsd',
-      ]);
-      const asks = pickFiniteNumber(r, [
-        'aggregated_asks_usd',
-        'asks_usd',
-        'aggregatedAsksUsd',
-      ]);
+      const bidKeys =
+        unit === 'coin'
+          ? [
+              'aggregated_bids_quantity',
+              'bids_quantity',
+              'aggregatedBidsQuantity',
+              'bids_qty',
+            ]
+          : [
+              'aggregated_bids_usd',
+              'bids_usd',
+              'aggregatedBidsUsd',
+            ];
+      const askKeys =
+        unit === 'coin'
+          ? [
+              'aggregated_asks_quantity',
+              'asks_quantity',
+              'aggregatedAsksQuantity',
+              'asks_qty',
+            ]
+          : [
+              'aggregated_asks_usd',
+              'asks_usd',
+              'aggregatedAsksUsd',
+            ];
+      const bids = pickFiniteNumber(r, bidKeys);
+      const asks = pickFiniteNumber(r, askKeys);
       if (bids == null || asks == null) return null;
       return bids - asks;
     });
@@ -532,6 +564,7 @@ async function getStructure(rawParams, opts = {}) {
       symbol: params.symbol,
       interval: params.interval,
       exchangeList: params.exchangeList,
+      unit: params.unit,
       ...latest,
     };
     logInfo = appendStructureLog(record);
@@ -566,9 +599,15 @@ async function getStructure(rawParams, opts = {}) {
       bidAsk: {
         available: maps.bidAskAvailable,
         path: '/api/futures/orderbook/aggregated-ask-bids-history',
-        formula: 'aggregated_bids_usd - aggregated_asks_usd',
+        formula:
+          params.unit === 'coin'
+            ? 'aggregated_bids_quantity - aggregated_asks_quantity'
+            : 'aggregated_bids_usd - aggregated_asks_usd',
         note: maps.bidAskError || null,
       },
+      unit: params.unit,
+      unitNote:
+        'unit applies to futCvd, spotCvd, oi, bidAskDelta; price and funding are unchanged',
       log: logInfo,
       generatedAt: new Date().toISOString(),
     },

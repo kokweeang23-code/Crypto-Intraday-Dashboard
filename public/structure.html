@@ -77,6 +77,14 @@
           >
           <p id="limit-hint" class="field__hint">Bars 1–1000 (672 ≈ 14d @ 30m)</p>
         </div>
+        <div class="field">
+          <label for="unit">Notional unit</label>
+          <select id="unit" name="unit" aria-describedby="unit-hint">
+            <option value="coin" selected>Coin</option>
+            <option value="usd">USD</option>
+          </select>
+          <p id="unit-hint" class="field__hint">CVD, OI, bid/ask (price &amp; funding unchanged)</p>
+        </div>
         <div class="controls__actions">
           <button type="submit" id="refresh-btn" class="btn btn--primary">
             <span class="material-icons" aria-hidden="true">refresh</span>

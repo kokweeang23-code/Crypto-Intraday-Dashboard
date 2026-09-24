@@ -53,6 +53,7 @@ async function main() {
   if (args.interval) raw.interval = args.interval;
   if (args.limit) raw.limit = args.limit;
   if (args.exchange_list) raw.exchange_list = args.exchange_list;
+  if (args.unit) raw.unit = args.unit;
 
   const payload = await snapshotStructure(raw);
   const latest = payload.latest || {};

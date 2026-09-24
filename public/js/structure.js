@@ -80,6 +80,31 @@ function formatFundingAnn(periodPct) {
 }
 
 /**
+ * Notional unit from payload (coin|usd). Price/funding ignore this.
+ * @param {object} payload
+ * @returns {'coin'|'usd'}
+ */
+function payloadUnit(payload) {
+  const u =
+    (payload && payload.params && payload.params.unit) ||
+    (payload && payload.meta && payload.meta.unit) ||
+    'coin';
+  return u === 'usd' ? 'usd' : 'coin';
+}
+
+/**
+ * Short unit suffix for notional series.
+ * @param {object} payload
+ * @returns {string}
+ */
+function notionalSuffix(payload) {
+  if (payloadUnit(payload) === 'usd') return 'USD';
+  const sym =
+    (payload && payload.params && payload.params.symbol) || 'BTC';
+  return String(sym).toUpperCase();
+}
+
+/**
  * Formats a compact number for axis ticks / stats.
  * @param {number|null|undefined} n
  * @param {{ digits?: number, pct?: boolean }} [opts]
@@ -127,10 +152,12 @@ function formatTimeLabel(t) {
 function readFormParams() {
   const form = document.getElementById('structure-form');
   const fd = new FormData(form);
+  const unitRaw = String(fd.get('unit') || 'coin').trim().toLowerCase();
   return {
     symbol: String(fd.get('symbol') || 'BTC').trim().toUpperCase(),
     interval: String(fd.get('interval') || '30m').trim(),
     limit: String(fd.get('limit') || '672').trim(),
+    unit: unitRaw === 'usd' ? 'usd' : 'coin',
   };
 }
 
@@ -144,6 +171,7 @@ function buildQuery(params) {
   q.set('symbol', params.symbol);
   q.set('interval', params.interval);
   q.set('limit', params.limit);
+  q.set('unit', params.unit || 'coin');
   return q.toString();
 }
 
@@ -203,15 +231,16 @@ function renderStats(payload) {
   const dl = document.getElementById('structure-stats');
   const note = document.getElementById('bidask-note');
   const latest = payload.latest || {};
+  const u = notionalSuffix(payload);
   const rows = [
     ['Price', formatCompact(latest.price, { digits: 0 })],
-    ['Futures CVD', formatCompact(latest.futCvd)],
-    ['Spot CVD', formatCompact(latest.spotCvd)],
+    [`Futures CVD (${u})`, formatCompact(latest.futCvd)],
+    [`Spot CVD (${u})`, formatCompact(latest.spotCvd)],
     ['Funding 8h (OI-w)', formatFundingPeriod(latest.funding)],
     ['Funding ann.', formatFundingAnn(latest.funding)],
-    ['Open interest', formatCompact(latest.oi)],
+    [`Open interest (${u})`, formatCompact(latest.oi)],
     [
-      'Bid/ask Δ',
+      `Bid/ask Δ (${u})`,
       payload.stats && payload.stats.bidAskAvailable
         ? formatCompact(latest.bidAskDelta)
         : 'n/a',
@@ -335,6 +364,7 @@ function renderChart(payload) {
   const labels = series.map((row) => formatTimeLabel(row.t));
   const bidAskAvailable = Boolean(payload.stats && payload.stats.bidAskAvailable);
   const datasets = buildDatasets(series, bidAskAvailable);
+  const u = notionalSuffix(payload);
 
   const gridColor = 'rgba(196, 199, 206, 0.18)';
   const tickColor = '#c4c7ce';
@@ -363,7 +393,7 @@ function renderChart(payload) {
     yFutCvd: {
       type: 'linear',
       position: 'left',
-      title: { display: true, text: 'Fut CVD', color: '#f28b82', font: { size: 11 } },
+      title: { display: true, text: `Fut CVD (${u})`, color: '#f28b82', font: { size: 11 } },
       ticks: {
         color: '#f28b82',
         callback: (v) => formatCompact(v),
@@ -374,7 +404,7 @@ function renderChart(payload) {
       type: 'linear',
       position: 'left',
       display: 'auto',
-      title: { display: true, text: 'Spot CVD', color: '#fdd663', font: { size: 11 } },
+      title: { display: true, text: `Spot CVD (${u})`, color: '#fdd663', font: { size: 11 } },
       ticks: {
         color: '#fdd663',
         callback: (v) => formatCompact(v),
@@ -386,7 +416,7 @@ function renderChart(payload) {
       type: 'linear',
       position: 'left',
       display: 'auto',
-      title: { display: true, text: 'OI', color: '#8ab4f8', font: { size: 11 } },
+      title: { display: true, text: `OI (${u})`, color: '#8ab4f8', font: { size: 11 } },
       ticks: {
         color: '#8ab4f8',
         callback: (v) => formatCompact(v),
@@ -413,7 +443,7 @@ function renderChart(payload) {
       display: bidAskAvailable ? 'auto' : false,
       title: {
         display: bidAskAvailable,
-        text: 'Bid−Ask',
+        text: `Bid−Ask (${u})`,
         color: '#c58af9',
         font: { size: 11 },
       },
@@ -510,7 +540,7 @@ async function refresh(mode) {
         ? ` Snapshot appended (${payload.meta.log.bytes} bytes).`
         : '';
     setStatus(
-      `Loaded ${payload.stats.sampleCounts.aligned} bars @ ${payload.params.interval}.${note}`,
+      `Loaded ${payload.stats.sampleCounts.aligned} bars @ ${payload.params.interval} · unit ${payload.params.unit || 'coin'}.${note}`,
       'ok'
     );
   } catch (err) {
