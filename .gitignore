@@ -14,3 +14,9 @@ dist/
 coverage/
 
 *.tar.gz
+
+# Structure logger (grows over time; keep example only)
+data/structure_log.jsonl
+data/*.jsonl
+!data/structure_log.example.jsonl
+!data/.gitkeep

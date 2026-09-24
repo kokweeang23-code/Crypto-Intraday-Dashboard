@@ -1,6 +1,6 @@
 /**
- * Express server: static public/ + GET/POST /api/insight.
- * API keys never leave API/insight.js (CRYPTOQUANT_API_KEY; optional CG_API_KEY).
+ * Express server: static public/ + /api/insight + /api/structure.
+ * API keys never leave API/*.js (CRYPTOQUANT_API_KEY; CG_API_KEY).
  */
 
 'use strict';
@@ -10,6 +10,11 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const { getInsight, validateInsightParams } = require('./API/insight');
+const {
+  getStructure,
+  snapshotStructure,
+  validateStructureParams,
+} = require('./API/structure');
 
 const app = express();
 const PORT = parsePort(process.env.PORT);
@@ -100,6 +105,44 @@ async function handleInsight(req, res) {
 app.get('/api/insight', handleInsight);
 app.post('/api/insight', handleInsight);
 
+/**
+ * Live CoinGlass market-structure series for the Structure chart page.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+async function handleStructure(req, res) {
+  try {
+    const raw = collectParams(req);
+    validateStructureParams(raw);
+    const payload = await getStructure(raw);
+    res.json(payload);
+  } catch (err) {
+    sendError(err, res);
+  }
+}
+
+app.get('/api/structure', handleStructure);
+app.post('/api/structure', handleStructure);
+
+/**
+ * Fetch fresh structure and append one JSONL snapshot under data/.
+ * Intended for the 4h logger / cron (or scripts/log-structure-snapshot.js).
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+async function handleStructureSnapshot(req, res) {
+  try {
+    const raw = collectParams(req);
+    validateStructureParams(raw);
+    const payload = await snapshotStructure(raw);
+    res.json(payload);
+  } catch (err) {
+    sendError(err, res);
+  }
+}
+
+app.post('/api/structure/snapshot', handleStructureSnapshot);
+
 app.use(express.static(path.join(__dirname, 'public'), {
   index: 'index.html',
   extensions: ['html'],
@@ -136,6 +179,6 @@ app.listen(PORT, () => {
     console.warn('WARNING: CRYPTOQUANT_API_KEY is not set — /api/insight will fail until configured.');
   }
   if (!process.env.CG_API_KEY) {
-    console.warn('NOTE: CG_API_KEY is not set — CoinGlass long/short ratios will be skipped.');
+    console.warn('NOTE: CG_API_KEY is not set — CoinGlass L/S ratios and /api/structure will be unavailable.');
   }
 });

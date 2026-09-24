@@ -39,6 +39,63 @@ Response additions when available:
 - `insights.panels.longShort` — plain English; also mentioned in the executive summary
 - `meta.sources` — lists CryptoQuant (required) and CoinGlass (optional)
 
+
+## BTC market structure (CoinGlass)
+
+Dedicated page `/structure.html` and API `/api/structure` pull live CoinGlass v4 history so the chart is useful on day one (no waiting for local logs). Snapshots can also be appended every ~4h to `data/structure_log.jsonl`.
+
+Base: `https://open-api-v4.coinglass.com` — header: `CG-API-KEY: {CG_API_KEY}` (**required** for this page).
+
+| Series | Path | Notes |
+| --- | --- | --- |
+| BTC price | `/api/futures/price/history` | `exchange=Binance`, `symbol=BTCUSDT`, OHLC `close` |
+| Futures CVD (agg) | `/api/futures/aggregated-cvd/history` | `exchange_list=Binance,OKX,Bybit`, `symbol=BTC`, `cum_vol_delta` |
+| Spot CVD (agg) | `/api/spot/aggregated-cvd/history` | Same params; spot taker CVD |
+| Funding (OI-weighted) | `/api/futures/funding-rate/oi-weight-history` | `symbol=BTC`, OHLC `close` |
+| Open interest (agg) | `/api/futures/open-interest/aggregated-history` | `symbol=BTC`, `unit=usd`, OHLC `close` |
+| Bid/ask delta (agg) | `/api/futures/orderbook/aggregated-ask-bids-history` | `aggregated_bids_usd − aggregated_asks_usd`; may be plan/interval limited |
+
+Defaults: `interval=30m`, `limit=672` (~14 days). Allowed intervals: `30m` | `1h` | `4h` | `1d`.
+
+### Structure API
+
+```http
+GET  /api/structure?symbol=BTC&interval=30m&limit=672
+POST /api/structure
+POST /api/structure/snapshot   # same params; also appends one JSONL row
+```
+
+Response shape (keys never returned):
+
+- `series[]` — `{ t, price, futCvd, spotCvd, funding, oi, bidAskDelta }` (ms epoch `t`)
+- `latest` — newest finite sample per field
+- `stats.bidAskAvailable` / `stats.bidAskError` — UI disables the bid/ask toggle when false
+- `meta.endpoints` / `meta.bidAsk` — documentation for overlays
+
+When `CG_API_KEY` is missing the API returns HTTP 503 JSON `{ ok:false, error:{ code:"CONFIG_ERROR", message:"CG_API_KEY is not set" } }`. The Structure UI still loads and shows that error.
+
+### 4h structure log
+
+```bash
+# One-shot CLI (loads .env if present)
+npm run snapshot:structure
+# or:
+node scripts/log-structure-snapshot.js --symbol BTC --interval 30m --limit 672
+
+# Same via HTTP (server must be running)
+curl -X POST 'http://127.0.0.1:3000/api/structure/snapshot?symbol=BTC&interval=30m&limit=672'
+```
+
+Appends one line to `data/structure_log.jsonl` (gitignored). Schema example: `data/structure_log.example.jsonl`.
+
+Suggested cron (Asia/Singapore, every 4 hours):
+
+```cron
+0 */4 * * * cd /path/to/Crypto-Intraday-Dashboard && /usr/bin/node scripts/log-structure-snapshot.js >> /var/log/structure-snapshot.log 2>&1
+```
+
+Or wire an external agent (e.g. Grok Bot) to hit `POST /api/structure/snapshot` on the same cadence. **Note:** Railway’s filesystem is ephemeral unless a volume is mounted — prefer the CLI/agent writing somewhere durable, or mount `data/` as a volume.
+
 ## DERIVED metrics (flagged in UI, API `meta.derived`, and README)
 
 These are **not** CryptoQuant published series. They are computed in `API/insight.js`:
@@ -58,15 +115,20 @@ Every API response includes `meta.derived` with formulas and caveats. The UI sho
 Crypto-Intraday-Dashboard/
   README.md
   package.json
-  server.js                 # Express: public/ + /api/insight
+  server.js                 # Express: public/ + /api/insight + /api/structure
   railway.json
   Procfile
   .env.example
   .gitignore
   API/insight.js            # CRYPTOQUANT_API_KEY (+ optional CG_API_KEY); fetch; compute; insights
-  public/index.html
+  API/structure.js          # CG_API_KEY; CoinGlass market-structure series + JSONL logger
+  scripts/log-structure-snapshot.js  # CLI: append one 4h-style snapshot to data/
+  data/.gitkeep
+  data/structure_log.example.jsonl
+  public/index.html         # Intraday dashboard
+  public/structure.html     # Multi-axis structure chart
   public/css/*.css          # Material Design (no inline styles)
-  public/js/*.js            # Chart.js CDN + fetch /api/insight (no keys)
+  public/js/*.js            # Chart.js CDN + fetch APIs (no keys)
   bot/telegram_bot.py       # /intraday [symbol] → insight API → TG brief
   bot/requirements.txt
 ```
@@ -74,7 +136,7 @@ Crypto-Intraday-Dashboard/
 ## Security
 
 - CryptoQuant key lives **only** in `API/insight.js` via `process.env.CRYPTOQUANT_API_KEY`.
-- Optional CoinGlass key: `process.env.CG_API_KEY` (same file; never sent to the client).
+- CoinGlass key: `process.env.CG_API_KEY` in `API/insight.js` and `API/structure.js` only (never sent to the client).
 - Never put keys in `public/`, never use `NEXT_PUBLIC_` / `VITE_` / client env vars.
 - Client and Telegram bot call **same-origin** `/api/insight` (or `INSIGHT_API_URL`) only.
 - Every user input is validated server-side in `validateInsightParams`.
@@ -84,7 +146,7 @@ Crypto-Intraday-Dashboard/
 | Variable | Required | Used by | Description |
 | --- | --- | --- | --- |
 | `CRYPTOQUANT_API_KEY` | Yes (server) | `API/insight.js` | CQ Bearer access token |
-| `CG_API_KEY` | No (optional) | `API/insight.js` | CoinGlass key for Binance global/top L/S ratios |
+| `CG_API_KEY` | Required for Structure; optional for insight L/S | `API/structure.js`, `API/insight.js` | CoinGlass key — Structure page + optional insight L/S ratios |
 | `PORT` | No (default 3000) | `server.js` | HTTP listen port (Railway sets this) |
 | `TELEGRAM_BOT_TOKEN` | Yes (bot) | `bot/telegram_bot.py` | From @BotFather |
 | `INSIGHT_API_URL` | Yes (bot) | `bot/telegram_bot.py` | Dashboard base URL, e.g. `http://127.0.0.1:3000` |
@@ -96,14 +158,15 @@ Copy `.env.example` → `.env` and fill values locally. Never commit `.env`.
 ```bash
 cd /workspace/Crypto-Intraday-Dashboard
 cp .env.example .env
-# Edit .env — set CRYPTOQUANT_API_KEY (required); CG_API_KEY optional
+# Edit .env — CRYPTOQUANT_API_KEY (insight); CG_API_KEY (Structure + optional L/S)
 
 npm install
 node server.js
 # or: npm start
 ```
 
-Open `http://127.0.0.1:3000`. Use **Refresh insight** to batch the five CQ calls (OHLCV, liquidation, trade, funding-rate, open-interest).
+Open `http://127.0.0.1:3000` (Intraday) or `http://127.0.0.1:3000/structure.html` (Structure).
+Use **Refresh insight** for CQ panels; **Refresh structure** for CoinGlass overlays.
 
 ### API
 
@@ -148,7 +211,7 @@ The bot formats the executive summary and flags DERIVED metrics. It does **not**
 ## Railway deploy
 
 1. Create a new Railway project from this folder (Nixpacks / Node).
-2. Set env vars: `CRYPTOQUANT_API_KEY` (required), optional `CG_API_KEY` for L/S ratios; `PORT` is injected automatically.
+2. Set env vars: `CRYPTOQUANT_API_KEY` (insight), `CG_API_KEY` (Structure page + optional insight L/S); `PORT` is injected automatically.
 3. Start command: `node server.js` (see `railway.json` / `Procfile`).
 4. Deploy; open the public URL.
 5. For Telegram, run the bot elsewhere (or a second Railway service) with:
@@ -166,4 +229,4 @@ Do not set any client-side public env vars for the CQ key.
 
 ## License / data attribution
 
-Market data © CryptoQuant; optional long/short ratios © CoinGlass. Derived analytics are computed by this project and must remain labeled **DERIVED**.
+Market data © CryptoQuant; CoinGlass powers optional L/S ratios and the Structure page overlays. Derived analytics are computed by this project and must remain labeled **DERIVED**.

@@ -1,11 +1,12 @@
 {
   "name": "crypto-intraday-dashboard",
   "version": "1.0.0",
-  "description": "CryptoQuant intraday trading dashboard — OHLCV, liquidations, CVD, EMA regime, volume-at-price, volatility",
+  "description": "CryptoQuant intraday + CoinGlass BTC market-structure dashboard \u2014 OHLCV, liquidations, CVD, EMA, VAP, volatility, structure overlays",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "snapshot:structure": "node scripts/log-structure-snapshot.js"
   },
   "engines": {
     "node": ">=18"

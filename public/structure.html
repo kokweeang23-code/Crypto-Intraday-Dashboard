@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BTC market structure — price, futures/spot CVD, OI-weighted funding, open interest, bid/ask delta (CoinGlass)">
+  <title>BTC Market Structure</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+  <script src="/js/structure.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="app-bar" role="banner">
+    <div class="app-bar__brand">
+      <span class="material-icons" aria-hidden="true">stacked_line_chart</span>
+      <h1 class="app-bar__title">BTC Market Structure</h1>
+    </div>
+    <nav class="app-bar__nav" aria-label="Primary">
+      <a class="nav-link" href="/">Intraday</a>
+      <a class="nav-link nav-link--active" href="/structure.html" aria-current="page">Structure</a>
+    </nav>
+    <p class="app-bar__subtitle" id="generated-at" aria-live="polite">Awaiting data…</p>
+  </header>
+
+  <main id="main-content" class="page page--wide" tabindex="-1">
+    <section class="card controls" aria-labelledby="controls-heading">
+      <h2 id="controls-heading" class="card__title">
+        <span class="material-icons" aria-hidden="true">tune</span>
+        Structure controls
+      </h2>
+      <form id="structure-form" class="controls__form" novalidate>
+        <div class="field">
+          <label for="symbol">Symbol</label>
+          <input
+            id="symbol"
+            name="symbol"
+            type="text"
+            value="BTC"
+            autocomplete="off"
+            spellcheck="false"
+            required
+            pattern="[A-Za-z]{2,12}"
+            aria-describedby="symbol-hint"
+          >
+          <p id="symbol-hint" class="field__hint">CoinGlass coin ticker (e.g. BTC)</p>
+        </div>
+        <div class="field">
+          <label for="interval">Interval</label>
+          <select id="interval" name="interval" aria-describedby="interval-hint">
+            <option value="30m" selected>30m</option>
+            <option value="1h">1h</option>
+            <option value="4h">4h</option>
+            <option value="1d">1d</option>
+          </select>
+          <p id="interval-hint" class="field__hint">Prefer 30m; fall back to 1h if plan-limited</p>
+        </div>
+        <div class="field">
+          <label for="limit">Limit</label>
+          <input
+            id="limit"
+            name="limit"
+            type="number"
+            value="672"
+            min="1"
+            max="1000"
+            step="1"
+            required
+            aria-describedby="limit-hint"
+          >
+          <p id="limit-hint" class="field__hint">Bars 1–1000 (672 ≈ 14d @ 30m)</p>
+        </div>
+        <div class="controls__actions">
+          <button type="submit" id="refresh-btn" class="btn btn--primary">
+            <span class="material-icons" aria-hidden="true">refresh</span>
+            Refresh structure
+          </button>
+          <button type="button" id="snapshot-btn" class="btn btn--tonal">
+            <span class="material-icons" aria-hidden="true">save</span>
+            Log snapshot
+          </button>
+        </div>
+      </form>
+      <div id="status-region" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="card summary" aria-labelledby="summary-heading">
+      <h2 id="summary-heading" class="card__title">
+        <span class="material-icons" aria-hidden="true">insights</span>
+        Latest snapshot
+      </h2>
+      <dl id="structure-stats" class="stat-grid" aria-label="Latest structure values"></dl>
+      <p id="bidask-note" class="caveat" hidden></p>
+    </section>
+
+    <section class="card panel" aria-labelledby="panel-structure-heading">
+      <div class="panel__header">
+        <h2 id="panel-structure-heading" class="card__title">
+          <span class="material-icons" aria-hidden="true">multiline_chart</span>
+          Multi-axis market structure
+        </h2>
+        <div
+          id="series-toggles"
+          class="toggle-row"
+          role="group"
+          aria-label="Series visibility toggles"
+        ></div>
+      </div>
+      <div class="chart-wrap chart-wrap--structure">
+        <canvas id="chart-structure" role="img" aria-label="BTC price with CVD funding OI overlays"></canvas>
+      </div>
+      <p class="caveat">
+        Right axis = price. Left axes = CVD / OI / funding / bid–ask delta.
+        Click legend or toggle chips to hide/show series. Data via CoinGlass v4 (server-side <code>CG_API_KEY</code>).
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer" role="contentinfo">
+    <p>
+      Structure page uses CoinGlass futures price, aggregated futures/spot CVD, OI-weighted funding,
+      aggregated open interest, and aggregated orderbook bid/ask when available.
+    </p>
+  </footer>
+</body>
+</html>
