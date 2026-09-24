@@ -21,14 +21,14 @@ const SERIES_META = [
     key: 'futCvd',
     label: 'Futures CVD',
     color: '#f28b82',
-    yAxisID: 'yCvd',
+    yAxisID: 'yFutCvd',
     borderWidth: 1.5,
   },
   {
     key: 'spotCvd',
     label: 'Spot CVD',
     color: '#fdd663',
-    yAxisID: 'yCvd',
+    yAxisID: 'ySpotCvd',
     borderWidth: 1.5,
   },
   {
@@ -332,15 +332,27 @@ function renderChart(payload) {
       },
       grid: { drawOnChartArea: false },
     },
-    yCvd: {
+    yFutCvd: {
       type: 'linear',
       position: 'left',
-      title: { display: true, text: 'CVD', color: '#f28b82', font: { size: 11 } },
+      title: { display: true, text: 'Fut CVD', color: '#f28b82', font: { size: 11 } },
       ticks: {
         color: '#f28b82',
         callback: (v) => formatCompact(v),
       },
       grid: { color: gridColor },
+    },
+    ySpotCvd: {
+      type: 'linear',
+      position: 'left',
+      display: 'auto',
+      title: { display: true, text: 'Spot CVD', color: '#fdd663', font: { size: 11 } },
+      ticks: {
+        color: '#fdd663',
+        callback: (v) => formatCompact(v),
+      },
+      grid: { drawOnChartArea: false },
+      offset: true,
     },
     yOi: {
       type: 'linear',
