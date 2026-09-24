@@ -33,7 +33,7 @@ const SERIES_META = [
   },
   {
     key: 'funding',
-    label: 'Funding (OI-w)',
+    label: 'Funding ann. (OI-w)',
     color: '#81c995',
     yAxisID: 'yFunding',
     borderWidth: 1.25,
@@ -53,6 +53,31 @@ const SERIES_META = [
     borderWidth: 1.25,
   },
 ];
+
+/** Binance-style 8h funding: 3 settlements/day. CoinGlass returns period rate already in %. */
+const FUNDING_SETTLEMENTS_PER_DAY = 3;
+const FUNDING_ANN_FACTOR = FUNDING_SETTLEMENTS_PER_DAY * 365;
+
+/**
+ * Formats CoinGlass funding period rate (already in percent units).
+ * @param {number|null|undefined} periodPct
+ * @returns {string}
+ */
+function formatFundingPeriod(periodPct) {
+  if (periodPct == null || !Number.isFinite(periodPct)) return '—';
+  return `${periodPct.toFixed(5)}%`;
+}
+
+/**
+ * Formats annualized funding from a CoinGlass period % rate.
+ * ann% = period% × 3 × 365
+ * @param {number|null|undefined} periodPct
+ * @returns {string}
+ */
+function formatFundingAnn(periodPct) {
+  if (periodPct == null || !Number.isFinite(periodPct)) return '—';
+  return `${(periodPct * FUNDING_ANN_FACTOR).toFixed(2)}%`;
+}
 
 /**
  * Formats a compact number for axis ticks / stats.
@@ -182,7 +207,8 @@ function renderStats(payload) {
     ['Price', formatCompact(latest.price, { digits: 0 })],
     ['Futures CVD', formatCompact(latest.futCvd)],
     ['Spot CVD', formatCompact(latest.spotCvd)],
-    ['Funding (OI-w)', formatCompact(latest.funding, { pct: true })],
+    ['Funding 8h (OI-w)', formatFundingPeriod(latest.funding)],
+    ['Funding ann.', formatFundingAnn(latest.funding)],
     ['Open interest', formatCompact(latest.oi)],
     [
       'Bid/ask Δ',
@@ -233,11 +259,13 @@ function buildDatasets(series, bidAskAvailable) {
     const disabled = meta.key === 'bidAskDelta' && !bidAskAvailable;
     return {
       label: meta.label,
-      data: series.map((row) =>
-        row[meta.key] != null && Number.isFinite(row[meta.key])
-          ? row[meta.key]
-          : null
-      ),
+      data: series.map((row) => {
+        const v = row[meta.key];
+        if (v == null || !Number.isFinite(v)) return null;
+        // Chart funding as annualized % for readability; raw API stays period %.
+        if (meta.key === 'funding') return v * FUNDING_ANN_FACTOR;
+        return v;
+      }),
       borderColor: meta.color,
       backgroundColor: 'transparent',
       yAxisID: meta.yAxisID,
@@ -370,10 +398,11 @@ function renderChart(payload) {
       type: 'linear',
       position: 'left',
       display: 'auto',
-      title: { display: true, text: 'Funding', color: '#81c995', font: { size: 11 } },
+      title: { display: true, text: 'Funding ann. %', color: '#81c995', font: { size: 11 } },
       ticks: {
         color: '#81c995',
-        callback: (v) => formatCompact(v, { pct: true }),
+        callback: (v) =>
+          v == null || !Number.isFinite(v) ? '—' : `${Number(v).toFixed(2)}%`,
       },
       grid: { drawOnChartArea: false },
       offset: true,
@@ -438,7 +467,8 @@ function renderChart(payload) {
                 const key = ctx.dataset._structureKey;
                 const raw = ctx.parsed.y;
                 if (key === 'funding') {
-                  return `${ctx.dataset.label}: ${formatCompact(raw, { pct: true })}`;
+                  const period = raw / FUNDING_ANN_FACTOR;
+                  return `${ctx.dataset.label}: ${formatFundingAnn(period)} (8h ${formatFundingPeriod(period)})`;
                 }
                 if (key === 'price') {
                   return `${ctx.dataset.label}: ${formatCompact(raw, { digits: 0 })}`;
